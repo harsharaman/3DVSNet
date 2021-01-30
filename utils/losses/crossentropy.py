@@ -1,7 +1,12 @@
 import torch
+import torch-nn as nn
 import torch.nn.functional as F
 
-def loss_3d(input_, target, weight=None, size_average=True):
+'''
+Entire code directly taken from Trapthi's work
+'''
+
+def loss_3d(input_, target, weight=None):
     n, c, d, h, w = input_.size()
     nt,ct, dt, ht, wt = target.size()
 
@@ -15,21 +20,32 @@ def loss_3d(input_, target, weight=None, size_average=True):
     )
     return loss
 
-def multi_scale_loss_3d(input_, target, weight=None, size_average=True, scale_weight=None):#[0.4,0.6,1][0.1,0.2,0.7]
+def multi_scale_loss_3d(input_, target, weight=None, scale_weight=None):
     if not isinstance(input_, tuple):
-        return loss_3d(input_=input_, target=target, weight=weight, size_average=size_average)
+        return loss_3d(input_=input_, target=target, weight=weight)
 
     # Auxiliary training 
-    if scale_weight is None:  # scale_weight: torch tensor type
+    if scale_weight is None:  
         n_inp = len(input_)
-        scale = 0.25 #0.4
-        scale_weight = torch.pow(scale * torch.ones(n_inp), torch.arange(n_inp).float()).cuda()
-           # target.device
-        
+        scale = 0.25 
+        scale_weight = torch.pow(scale * torch.ones(n_inp), torch.arange(n_inp).float()).cuda() #weight for input from HR and LR branches
+           
     scale_weight =  scale_weight/sum(scale_weight) # normalise
     loss = 0.0
     for i, inp in enumerate(input_):
         loss = (loss) + scale_weight[i] * loss_3d(
-            input_=inp, target=target, weight=weight, size_average=True
+            input_=inp, target=target, weight=weight
         )
     return loss
+
+class categorical_cross_entropy(nn.Module):
+    '''
+    Class wrapper to multi_scale_loss_3d
+    '''
+    def __init__(self, weight=None, scale_weight=None):
+        super(categorical_cross_entropy, self).__init__()
+        self.weight = weight
+        self.scale_weight = scale_weight
+
+    def forward(self, input_, target):
+        return multi_scale_loss_3d(input_, target, weight, scale_weight)

@@ -10,7 +10,7 @@ class vsnet(nn.Module):
         self,
         n_classes=3,
         block_config=[1, 1, 2, 1],
-        is_InstanceNorm=False,
+        is_instancenorm=False,
     ):
 
         super(vsnet, self).__init__()
@@ -23,123 +23,123 @@ class vsnet(nn.Module):
         self.convbnrelu1_1 = conv3DInstanceNormPRelu(
             in_channels=1,
             k_size=(3,5,5),
-            n_filters=32,
+            n_filters=64,
             padding=(1,2,2),
             stride=(1,2,2),
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
         
-        self.scse26 = ChannelSELayer3D(32)
+        self.scse26 = ChannelSpatialSELayer3D(64)
         
         self.convbnrelu1_2 = conv3DInstanceNormPRelu(
-            in_channels=32,
+            in_channels=64,
             k_size=(3,5,5),
-            n_filters=32,
+            n_filters=64,
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
         
         self.convbnrelu1_3 = conv3DInstanceNormPRelu(
-            in_channels=32,
+            in_channels=64,
             k_size=(3,5,5),
-            n_filters=32,
+            n_filters=64,
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
 
         self.res_block3_identity = residualBlock(
             self.block_config[1], 
-            32,
-            32,
+            64,
+            64,
             2,
             1,
             include_range="identity",
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
 
         # Final conv layer in LR branch
         self.conv5_4_k1 = conv3DInstanceNormPRelu(
-            in_channels=32,
+            in_channels=64,
             k_size=(3,5,5),
-            n_filters=32,
+            n_filters=64,
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
 
         # High-resolution (sub1) branch
         self.convbnrelu1_sub1 = conv3DInstanceNormPRelu(
             in_channels=1,
             k_size=(3,5,5),
-            n_filters=16,
-            padding=(1,2,2),
-            stride=(1,2,2),
-            bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
-        )
-        self.scse13 = ChannelSELayer3D(16)
-                                             
-        self.convbnrelu2_sub1 = conv3DInstanceNormPRelu(
-            in_channels=16,
-            k_size=(3,5,5),
             n_filters=32,
             padding=(1,2,2),
             stride=(1,2,2),
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
+        )
+        self.scse13 = ChannelSpatialSELayer3D(32)
+                                             
+        self.convbnrelu2_sub1 = conv3DInstanceNormPRelu(
+            in_channels=32,
+            k_size=(3,5,5),
+            n_filters=64,
+            padding=(1,2,2),
+            stride=(1,2,2),
+            bias=bias,
+            is_instancenorm=is_instancenorm,
         )
 
         self.convbnrelu1_3 = conv3DInstanceNormPRelu(
+            in_channels=64,
+            k_size=(3,5,5),
+            n_filters=64,
+            padding=(1,2,2),
+            stride=1,
+            bias=bias,
+            is_instancenorm=is_instancenorm,
+        )
+
+        self.convbnrelu4_sub1 = conv3DInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=32,
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
-        )
-
-        self.convbnrelu4_sub1 = conv3DInstanceNormPRelu(
-            in_channels=16,
-            k_size=(3,5,5),
-            n_filters=16,
-            padding=(1,2,2),
-            stride=1,
-            bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
         self.convbnrelu3_sub1 = conv3DInstanceNormPRelu(
-            in_channels=32,
+            in_channels=64,
             k_size=(3,5,5),
-            n_filters=16,
+            n_filters=32,
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
        
         self.convbnrelu5_sub1 = conv3DInstanceNormPRelu(
-            in_channels=32,
+            in_channels=64,
             k_size=(3,5,5),
-            n_filters=16,
+            n_filters=32,
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_InstanceNorm=is_InstanceNorm,
+            is_instancenorm=is_instancenorm,
         )
         
-        self.classification = nn.Conv3d(16, self.n_classes, 1)
+        self.classification = nn.Conv3d(32, self.n_classes, 1)
 
         # Cascade Feature Fusion Units
 
         self.cff_sub12 = cascadeFeatureFusion(
-            self.n_classes, 32, 32, 32, is_InstanceNorm=is_InstanceNorm
+            self.n_classes, 64, 64, 64, is_instancenorm=is_instancenorm
         )
 
     def forward(self, x):
@@ -184,7 +184,7 @@ class vsnet(nn.Module):
             )
             return sub124_cls
 
-
+'''
 #test model
 input = torch.randn(2,1,32,32,32).cuda()
 net = vsnet().float().cuda()
@@ -192,5 +192,5 @@ net = vsnet().float().cuda()
 print(net)
 output=net(input)
 print(output[0].shape)
-
+'''
 

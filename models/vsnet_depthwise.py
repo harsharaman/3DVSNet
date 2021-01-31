@@ -5,25 +5,25 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils import data
 sys.path.append(os.path.join(os.getcwd(), 'models'))
-from vsnet_parts import conv3DInstanceNorm, conv3DInstanceNormPRelu, bottleNeckIdentity, residualBlock, cascadeFeatureFusion
+from vsnet_parts_separable import convDepthwiseInstanceNorm, convDepthwiseInstanceNormPRelu, bottleNeckIdentity, residualBlock, cascadeFeatureFusion
 from SEblocks import ChannelSELayer3D, SpatialSELayer3D, ChannelSpatialSELayer3D
-from modifiedSEblocks import CBAM, ChannelGate, Flatten, ChannelPool, BasicConv, SpatialGate
-class vsnet_with_attention(nn.Module):
+
+class vsnet_depthwise(nn.Module):
     def __init__(
         self,
         n_classes=3,
         block_config=[1, 1, 2, 1],
-        is_InstanceNorm=False,
+        is_InstanceNorm=True,
     ):
 
-        super(vsnet_with_attention, self).__init__()
+        super(vsnet_depthwise, self).__init__()
 
         bias = True 
         self.block_config = block_config
         self.n_classes =  n_classes
 
         # Encoder
-        self.convbnrelu1_1 = conv3DInstanceNormPRelu(
+        self.convbnrelu1_1 = convDepthwiseInstanceNormPRelu(
             in_channels=1,
             k_size=(3,5,5),
             n_filters=32,
@@ -33,9 +33,9 @@ class vsnet_with_attention(nn.Module):
             is_InstanceNorm=is_InstanceNorm,
         )
         
-        self.cbam26 = CBAM(32, pool_types=['max','std'])
+        self.scse26 = ChannelSELayer3D(32)
         
-        self.convbnrelu1_2 = conv3DInstanceNormPRelu(
+        self.convbnrelu1_2 = convDepthwiseInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=32,
@@ -45,7 +45,7 @@ class vsnet_with_attention(nn.Module):
             is_InstanceNorm=is_InstanceNorm,
         )
         
-        self.convbnrelu1_3 = conv3DInstanceNormPRelu(
+        self.convbnrelu1_3 = convDepthwiseInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=32,
@@ -66,7 +66,7 @@ class vsnet_with_attention(nn.Module):
         )
 
         # Final conv layer in LR branch
-        self.conv5_4_k1 = conv3DInstanceNormPRelu(
+        self.conv5_4_k1 = convDepthwiseInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=32,
@@ -77,18 +77,18 @@ class vsnet_with_attention(nn.Module):
         )
 
         # High-resolution (sub1) branch
-        self.convbnrelu1_sub1 = conv3DInstanceNormPRelu(
+        self.convbnrelu1_sub1 = convDepthwiseInstanceNormPRelu(
             in_channels=1,
-            k_size=(3,5,5),#3
+            k_size=(3,5,5),
             n_filters=16,
             padding=(1,2,2),
             stride=(1,2,2),
             bias=bias,
             is_InstanceNorm=is_InstanceNorm,
         )
-        self.cbam13 = CBAM(16,pool_types=['max','std'])
+        self.scse13 = ChannelSELayer3D(16)
                                              
-        self.convbnrelu2_sub1 = conv3DInstanceNormPRelu(
+        self.convbnrelu2_sub1 = convDepthwiseInstanceNormPRelu(
             in_channels=16,
             k_size=(3,5,5),
             n_filters=32,
@@ -98,7 +98,7 @@ class vsnet_with_attention(nn.Module):
             is_InstanceNorm=is_InstanceNorm,
         )
 
-        self.convbnrelu1_3 = conv3DInstanceNormPRelu(
+        self.convbnrelu1_3 = convDepthwiseInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=32,
@@ -108,7 +108,7 @@ class vsnet_with_attention(nn.Module):
             is_InstanceNorm=is_InstanceNorm,
         )
 
-        self.convbnrelu4_sub1 = conv3DInstanceNormPRelu(
+        self.convbnrelu4_sub1 = convDepthwiseInstanceNormPRelu(
             in_channels=16,
             k_size=(3,5,5),
             n_filters=16,
@@ -117,7 +117,7 @@ class vsnet_with_attention(nn.Module):
             bias=bias,
             is_InstanceNorm=is_InstanceNorm,
         )
-        self.convbnrelu3_sub1 = conv3DInstanceNormPRelu(
+        self.convbnrelu3_sub1 = convDepthwiseInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=16,
@@ -127,7 +127,7 @@ class vsnet_with_attention(nn.Module):
             is_InstanceNorm=is_InstanceNorm,
         )
        
-        self.convbnrelu5_sub1 = conv3DInstanceNormPRelu(
+        self.convbnrelu5_sub1 = convDepthwiseInstanceNormPRelu(
             in_channels=32,
             k_size=(3,5,5),
             n_filters=16,
@@ -152,30 +152,18 @@ class vsnet_with_attention(nn.Module):
         x_sub2 = F.interpolate(
             x, size=(int(d), int(h/2), int(w/2)), mode="trilinear", align_corners=True
         )
-        x_sub2_1 = self.convbnrelu1_1(x_sub2)
-        x_sub2 = self.cbam26(x_sub2_1) #Attention module
-        x_sub2 = x_sub2_1 + x_sub2 #Element-wise summation
-        x_sub2_1 = self.convbnrelu1_2(x_sub2)
-        x_sub2 = self.cbam26(x_sub2_1)
-        x_sub2 = x_sub2_1 + x_sub2
-        x_sub2_1 = self.convbnrelu1_3(x_sub2)
-        x_sub2 = self.cbam26(x_sub2_1)
-        x_sub2 = x_sub2_1 + x_sub2  
+        x_sub2 = self.convbnrelu1_1(x_sub2)
+        x_sub2 = self.convbnrelu1_2(x_sub2)
+        x_sub2 = self.convbnrelu1_3(x_sub2)
         x_sub2 = F.max_pool3d(x_sub2, 3, 2, 1) 
         x_sub2 = self.res_block3_identity(x_sub2)
-        x_sub2_1 = self.conv5_4_k1(x_sub2)
-        x_sub2 = self.cbam26(x_sub2_1)
-        x_sub2 = x_sub2_1 + x_sub2
+        x_sub2 = self.conv5_4_k1(x_sub2)
         
         # High resolution branch
-        x_sub1_1 = self.convbnrelu1_sub1(x)
-        x_sub1 = self.cbam13(x_sub1_1)
-        x_sub1 = x_sub1_1 + x_sub1
+        x_sub1 = self.convbnrelu1_sub1(x)
         syn1 = x_sub1
-        x_sub1_1 = self.convbnrelu2_sub1(x_sub1)
-        x_sub1 = self.cbam26(x_sub1_1)
-        x_sub1 = x_sub1_1 + x_sub1
-        
+        x_sub1 = self.convbnrelu2_sub1(x_sub1)
+
         # fusion
         x_sub12, sub2_cls = self.cff_sub12(x_sub2, x_sub1)
 
@@ -184,9 +172,7 @@ class vsnet_with_attention(nn.Module):
         )
         x_sub12 = self.convbnrelu5_sub1(x_sub12)
         concat = torch.cat((x_sub12, syn1), dim=1)
-        x_sub12_1 = self.convbnrelu3_sub1(concat)
-        x_sub12 = self.cbam13(x_sub12_1)
-        x_sub12 = x_sub12_1 + x_sub12
+        x_sub12 = self.convbnrelu3_sub1(concat)
         x_sub12 = self.convbnrelu4_sub1(x_sub12)
         sub124_cls = self.classification(x_sub12)
 
@@ -200,12 +186,14 @@ class vsnet_with_attention(nn.Module):
                 align_corners=True,
             )
             return sub124_cls
-'''
+
+
 #test model
 input = torch.randn(2,1,32,32,32).cuda()
-net = vsnet().float().cuda()
+net = vsnet_depthwise().float().cuda()
 #net = nn.DataParallel(net)
 print(net)
 output=net(input)
 print(output[0].shape)
-'''
+
+

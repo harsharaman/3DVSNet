@@ -1,0 +1,14 @@
+alpha:
+- 1
+- 1
+- 1
+batch_size: 2
+early_stopping: 40
+epochs: 100
+loss: ce
+lr: 0.01
+name: vsnet
+num_workers: 8
+optimizer: Adam
+reg_wt: 0.001
+weight_decay: 0.0001

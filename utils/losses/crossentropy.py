@@ -1,5 +1,5 @@
 import torch
-import torch-nn as nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 '''
@@ -48,4 +48,4 @@ class categorical_cross_entropy(nn.Module):
         self.scale_weight = scale_weight
 
     def forward(self, input_, target):
-        return multi_scale_loss_3d(input_, target, weight, scale_weight)
+        return multi_scale_loss_3d(input_, target, self.weight, self.scale_weight)

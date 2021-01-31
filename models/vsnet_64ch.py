@@ -1,7 +1,10 @@
+import os
+import sys
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils import data
+sys.path.append(os.path.join(os.getcwd(), 'models'))
 from vsnet_parts import conv3DInstanceNorm, conv3DInstanceNormPRelu, bottleNeckIdentity, residualBlock, cascadeFeatureFusion
 from SEblocks import ChannelSELayer3D, SpatialSELayer3D, ChannelSpatialSELayer3D
 

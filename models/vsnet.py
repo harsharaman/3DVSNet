@@ -1,7 +1,10 @@
+import os
+import sys
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils import data
+sys.path.append(os.path.join(os.getcwd(), 'models'))
 from vsnet_parts import conv3DInstanceNorm, conv3DInstanceNormPRelu, bottleNeckIdentity, residualBlock, cascadeFeatureFusion
 from SEblocks import ChannelSELayer3D, SpatialSELayer3D, ChannelSpatialSELayer3D
 
@@ -10,7 +13,7 @@ class vsnet(nn.Module):
         self,
         n_classes=3,
         block_config=[1, 1, 2, 1],
-        is_InstanceNorm=False,
+        is_InstanceNorm=True,
     ):
 
         super(vsnet, self).__init__()
@@ -184,7 +187,7 @@ class vsnet(nn.Module):
             )
             return sub124_cls
 
-
+'''
 #test model
 input = torch.randn(2,1,32,32,32).cuda()
 net = vsnet().float().cuda()
@@ -192,5 +195,5 @@ net = vsnet().float().cuda()
 print(net)
 output=net(input)
 print(output[0].shape)
-
+'''
 

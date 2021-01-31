@@ -1,0 +1,2 @@
+epoch,lr,loss,train_iou,train_dice,val_loss,val_iou,val_dice
+0,0.01,0.36330901193618775,,,"tensor(0.3756, device='cuda:0')",0.5160181293513034,0.44553255675672626

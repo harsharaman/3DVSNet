@@ -9,7 +9,7 @@ class convDepthwiseInstanceNorm(nn.Module):
     def __init__(self,in_channels,n_filters,k_size,stride,padding,bias=True,dilation=1,is_InstanceNorm=True):
         super(convDepthwiseInstanceNorm, self).__init__()
 
-        conv_depthwise = nn.Conv2d(
+        conv_depthwise = nn.Conv3d(
             int(in_channels),
             int(in_channels),
             kernel_size=k_size,
@@ -20,7 +20,7 @@ class convDepthwiseInstanceNorm(nn.Module):
             groups=int(in_channels)
         )
 
-        conv_pointwise = nn.Conv2d(
+        conv_pointwise = nn.Conv3d(
             int(in_channels),
             int(n_filters),
             kernel_size=1
@@ -39,7 +39,7 @@ class convDepthwiseInstanceNormPRelu(nn.Module): #Defining own convolution with 
     def __init__(self,in_channels,n_filters,k_size,stride,padding,bias=True,dilation=1,is_InstanceNorm=True,):
         super(convDepthwiseInstanceNormPRelu, self).__init__()
 
-        conv_depthwise = nn.Conv2d(
+        conv_depthwise = nn.Conv3d(
             int(in_channels),
             int(in_channels),
             kernel_size=k_size,
@@ -50,7 +50,7 @@ class convDepthwiseInstanceNormPRelu(nn.Module): #Defining own convolution with 
             groups=int(in_channels)
         )
 
-        conv_pointwise = nn.Conv2d(
+        conv_pointwise = nn.Conv3d(
             int(in_channels),
             int(n_filters),
             kernel_size=1
@@ -137,7 +137,7 @@ class cascadeFeatureFusion(nn.Module):
             dilation=(2),
             is_InstanceNorm=is_InstanceNorm,
         )
-        self.low_classifier_conv = nn.convDepthwise(
+        self.low_classifier_conv = nn.Conv3d(
             int(low_in_channels),
             int(n_classes),
             kernel_size=(3,5,5),

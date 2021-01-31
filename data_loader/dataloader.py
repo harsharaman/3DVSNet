@@ -1,11 +1,12 @@
 from abc import ABCMeta, abstractmethod
-from nnunet.paths import preprocessing_output_dir
+#from nnunet.paths import preprocessing_output_dir
 import os
 import pickle
 import numpy as np
 from batchgenerators.dataloading import MultiThreadedAugmenter, SingleThreadedAugmenter
 from batchgenerators.transforms import SpatialTransform, MirrorTransform, GammaTransform, Compose, DataChannelSelectionTransform, SegChannelSelectionTransform
 from batchgenerators.transforms.utility_transforms import RemoveLabelTransform, RenameTransform, NumpyToTensor
+from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
 from nnunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform,     MaskTransform, ConvertSegmentationToRegionsTransform, RemoveKeyTransform
 from batchgenerators.augmentations.utils import random_crop_2D_image_batched, pad_nd_image
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -154,11 +155,9 @@ default_3D_augmentation_params = {
     "additive_brightness_mu": 0.0,
     "additive_brightness_sigma": 0.1,
 
-    "num_threads": 10, #if 'nnUNet_n_proc_DA' not in os.environ else int(os.environ['nnUNet_n_proc_DA']),
+    "num_threads": 4, #if 'nnUNet_n_proc_DA' not in os.environ else int(os.environ['nnUNet_n_proc_DA']),
     "num_cached_per_thread": 1,
 }
-
-folder = "/net/pasnas01/pool1/ramanha/corpus/nnUNet/nnUNet_preprocessed/Task003_Liver/nnUNetData_plans_v2.1_stage0"
 
 def convert_to_npy(args):
     if not isinstance(args, tuple):
@@ -184,15 +183,13 @@ def unpack_dataset(folder, threads=8, key="data"):
     p.close()
     p.join()
 
-#unpack_dataset(folder)
-
 #Returns liver_xxx, where x={1,2,...,n} number of cases
 def get_case_identifiers(folder):
     case_identifiers = [i[:-4] for i in os.listdir(folder) if i.endswith("npz") and (i.find("segFromPrevStage") == -1)]
     return case_identifiers
 
 def load_dataset(folder, num_cases_properties_loading_threshold=1000):
-    # we don't load the actual data but instead return the filename to the np file.
+    # we don't load the actual data but instead return the filename to the numpy file.
     print('loading dataset')
     case_identifiers = get_case_identifiers(folder)
     case_identifiers.sort()
@@ -214,7 +211,69 @@ def load_dataset(folder, num_cases_properties_loading_threshold=1000):
 
     return dataset #This return should be the argument for DataLoader3D
 
-dataset = load_dataset(folder)
+from sklearn.model_selection import KFold, train_test_split
+def do_split_custom(dataset, fold="normal", dataset_directory=None):
+        """
+        The default split is a 5 fold CV on all available training cases. nnU-Net will create a split (it is seeded,
+        so always the same) and save it as splits_final.pkl file in the preprocessed data directory.
+        Sometimes you may want to create your own split for various reasons. For this you will need to create your own
+        splits_final.pkl file. If this file is present, nnU-Net is going to use it and whatever splits are defined in
+        it. You can create as many splits in this file as you want. Note that if you define only 4 splits (fold 0-3)
+        and then set fold=4 when training (that would be the fifth split), nnU-Net will print a warning and proceed to
+        use a random 80:20 data split.
+        :return:
+        """
+        if fold == "all":
+            # if fold==all then we use all images for training and validation
+            tr_keys = val_keys = list(dataset.keys())
+        elif fold == "normal":
+            # Divide training and testing data in 80:20 ratio
+            all_keys_sorted = np.sort(list(dataset.keys()))
+            tr_keys, val_keys = train_test_split(all_keys_sorted, train_size=0.8, random_state=12345)
+        
+        else:
+            splits_file = join(dataset_directory, "splits_final.pkl")
+
+            # if the split file does not exist we need to create it
+            if not isfile(splits_file):
+                #self.print_to_log_file("Creating new split...")
+                splits = []
+                all_keys_sorted = np.sort(list(dataset.keys()))
+                kfold = KFold(n_splits=5, shuffle=True, random_state=12345)
+                for i, (train_idx, test_idx) in enumerate(kfold.split(all_keys_sorted)):
+                    train_keys = np.array(all_keys_sorted)[train_idx]
+                    test_keys = np.array(all_keys_sorted)[test_idx]
+                    splits.append(OrderedDict())
+                    splits[-1]['train'] = train_keys
+                    splits[-1]['val'] = test_keys
+                save_pickle(splits, splits_file)
+
+            splits = load_pickle(splits_file)
+
+            if self.fold < len(splits):
+                tr_keys = splits[self.fold]['train']
+                val_keys = splits[self.fold]['val']
+            else:
+                self.print_to_log_file("INFO: Requested fold %d but split file only has %d folds. I am now creating a "
+                                       "random 80:20 split!" % (self.fold, len(splits)))
+                # if we request a fold that is not in the split file, create a random 80:20 split
+                rnd = np.random.RandomState(seed=12345 + self.fold)
+                keys = np.sort(list(self.dataset.keys()))
+                idx_tr = rnd.choice(len(keys), int(len(keys) * 0.8), replace=False)
+                idx_val = [i for i in range(len(keys)) if i not in idx_tr]
+                tr_keys = [keys[i] for i in idx_tr]
+                val_keys = [keys[i] for i in idx_val]
+        
+        tr_keys.sort()
+        val_keys.sort()
+        dataset_tr = OrderedDict()
+        for i in tr_keys:
+            dataset_tr[i] = dataset[i]
+        dataset_val = OrderedDict()
+        for i in val_keys:
+            dataset_val[i] = dataset[i]
+            
+        return dataset_tr, dataset_val
 
 #function to get patch size
 def get_patch_size(final_patch_size, rot_x, rot_y, rot_z, scale_range):
@@ -240,11 +299,6 @@ def get_patch_size(final_patch_size, rot_x, rot_y, rot_z, scale_range):
     final_shape /= min(scale_range)
     return final_shape.astype(int)
 
-patch_size = get_patch_size([128, 128, 128], default_3D_augmentation_params["rotation_x"], 
-                            default_3D_augmentation_params["rotation_y"], default_3D_augmentation_params["rotation_z"],
-                           default_3D_augmentation_params["scale_range"])
-#print(patch_size)
-
 class DataLoader3D(SlimDataLoaderBase):
     def __init__(self, data, patch_size, final_patch_size, batch_size, has_prev_stage=False,
                  oversample_foreground_percent=0.5, memmap_mode="r", pad_mode="edge", pad_kwargs_data=None,
@@ -254,7 +308,7 @@ class DataLoader3D(SlimDataLoaderBase):
         You can load the data with load_dataset(folder) where folder is the folder where the npz files are located. If there
         are only npz files present in that folder, the data loader will unpack them on the fly. This may take a while
         and increase CPU usage. Therefore, it is advised to call unpack_dataset(folder) first, which will unpack all npz
-        to npy. Don't forget to call delete_npy(folder) after you are done with training?
+        to npy. Don't forget to call delete_npy(folder) after you are done with training.
         Why all the hassle? Well the decathlon dataset is huge. Using npy for everything will consume >1 TB and that is uncool
         given that you will have to store that permanently. With this strategy all
         data is stored in a compressed format (factor 10 smaller) and only unpacked when needed.
@@ -266,11 +320,8 @@ class DataLoader3D(SlimDataLoaderBase):
         size that goes into your network. We need this here because we will pad patients in here so that patches at the
         border of patients are sampled properly
         :param batch_size:
-        :param num_batches: how many batches will the data loader produce before stopping? None=endless
-        :param seed:
         :param stage: ignore this 
-        :param random: Sample keys randomly; CAREFUL! non-random sampling requires batch_size=1, otherwise you will iterate batch_size times over the dataset
-        :param oversample_foreground: half the batch will be forced to contain at least some foreground (equal prob for each of the foreground classes)
+        :param oversample_foreground_percent=0.5: half the batch will be forced to contain at least some foreground (equal prob for each of the foreground classes)
         """
         super(DataLoader3D, self).__init__(data, batch_size, 0)
         if pad_kwargs_data is None:
@@ -323,7 +374,7 @@ class DataLoader3D(SlimDataLoaderBase):
         if not self.was_initialized:
             self.reset()
         idx = self.current_position
-        if idx < 51:#Number of threads * idx = required number of patches in one batch
+        if idx < 126:#Number of threads * idx = required number of patches in one batch
             self.current_position = idx + 1
             if not self.test:
                 selected_keys = np.random.choice(self.list_of_keys, self.batch_size, False, None)
@@ -367,7 +418,7 @@ class DataLoader3D(SlimDataLoaderBase):
                     # in practice this feature was never used so it's always only one segmentation
                     seg_key = np.random.choice(segs_from_previous_stage.shape[0], replace=False)
                     seg_from_previous_stage = segs_from_previous_stage[seg_key:seg_key + 1]
-                    assert all([i == j for i, j in zip(seg_from_previous_stage.shape[1:], case_all_data.shape[1:])]),                         "seg_from_previous_stage does not match the shape of case_all_data: %s vs %s" %                         (str(seg_from_previous_stage.shape[1:]), str(case_all_data.shape[1:]))
+                    assert all([i == j for i, j in zip(seg_from_previous_stage.shape[1:], case_all_data.shape[1:])]),"seg_from_previous_stage does not match the shape ofcase_all_data: %s vs %s" % (str(seg_from_previous_stage.shape[1:]), str(case_all_data.shape[1:]))
                 else:
                     seg_from_previous_stage = None
 
@@ -377,7 +428,7 @@ class DataLoader3D(SlimDataLoaderBase):
                 for d in range(3):
                     # if case_all_data.shape + need_to_pad is still < patch size we need to pad more! We pad on both sides
                     # always
-                    if need_to_pad[d] + case_all_data.shape[d + 1] < self.patch_size[d]:
+                    if need_to_pad[d] + case_all_data.shape[d + 1] < self.patch_size[d]: #case_all_data.shape[d + 1] becuase we are first dimension denotes GT or data
                         need_to_pad[d] = self.patch_size[d] - case_all_data.shape[d + 1]
 
                 # we can now choose the bbox from -need_to_pad // 2 to shape - patch_size + need_to_pad // 2. Here we
@@ -406,7 +457,7 @@ class DataLoader3D(SlimDataLoaderBase):
                         [i for i in properties['class_locations'].keys() if len(properties['class_locations'][i]) != 0])
                     foreground_classes = foreground_classes[foreground_classes > 0]
 
-                    if len(foreground_classes) == 0:
+                    if len(foreground_classes) == 0 and not self.test:
                         # this only happens if some image does not contain foreground voxels at all
                         selected_class = None
                         voxels_of_that_class = None
@@ -440,7 +491,7 @@ class DataLoader3D(SlimDataLoaderBase):
 
                 # We first crop the data to the region of the
                 # bbox that actually lies within the data. This will result in a smaller array which is then faster to pad.
-                # valid_bbox is just the coord that lied within the data cube. It will be padded to match the patch size later
+                # valid_bbox is just the coord that lies within the data cube. It will be padded to match the patch size later
                 valid_bbox_x_lb = max(0, bbox_x_lb)
                 valid_bbox_x_ub = min(shape[0], bbox_x_ub)
                 valid_bbox_y_lb = max(0, bbox_y_lb)
@@ -505,13 +556,44 @@ def get_moreDA_augmentation(dataloader_train=None, dataloader_val=None, patch_si
             tr_transforms.append(SegChannelSelectionTransform(params.get("selected_seg_channels")))
 
         # don't do color augmentations while in 2d mode with 3d data because the color channel is overloaded!!
+        # Unrelated to our dataset
         if params.get("dummy_2D") is not None and params.get("dummy_2D"):
             ignore_axes = (0,)
             tr_transforms.append(Convert3DTo2DTransform())
         else:
             ignore_axes = None
         
-        #All spatial transforms are done here    
+        """
+        All spatial transforms are done here . Rotation, deformation, scaling, cropping. Computational time scales 
+        only with patch_size, not with input patch size or type of augmentations used.
+        Internally, this transform will use a coordinate grid of shape patch_size to which the transformations are
+        applied (very fast). Interpolation on the image data will only be done at the very end
+        Args:
+        patch_size (tuple/list/ndarray of int): Output patch size
+        patch_center_dist_from_border (tuple/list/ndarray of int, or int): How far should the center pixel of the
+        extracted patch be from the image border? Recommended to use patch_size//2.
+        This only applies when random_crop=True
+        do_elastic_deform (bool): Whether or not to apply elastic deformation
+        alpha (tuple of float): magnitude of the elastic deformation; randomly sampled from interval
+        sigma (tuple of float): scale of the elastic deformation (small = local, large = global); randomly sampled
+        from interval
+        do_rotation (bool): Whether or not to apply rotation
+        angle_x, angle_y, angle_z (tuple of float): angle in rad; randomly sampled from interval. Always double check
+        whether axes are correct!
+        do_scale (bool): Whether or not to apply scaling
+        scale (tuple of float): scale range ; scale is randomly sampled from interval
+        border_mode_data: How to treat border pixels in data? see scipy.ndimage.map_coordinates
+        border_cval_data: If border_mode_data=constant, what value to use?
+        order_data: Order of interpolation for data. see scipy.ndimage.map_coordinates
+        border_mode_seg: How to treat border pixels in seg? see scipy.ndimage.map_coordinates
+        border_cval_seg: If border_mode_seg=constant, what value to use?
+        order_seg: Order of interpolation for seg. see scipy.ndimage.map_coordinates. Strongly recommended to use 0!
+        If !=0 then you will have to round to int and also beware of interpolation artifacts if you have more then
+        labels 0 and 1. (for example if you have [0, 0, 0, 2, 2, 1, 0] the neighboring [0, 0, 2] bay result in [0, 1, 2])
+        random_crop: True: do a random crop of size patch_size and minimal distance to border of
+        patch_center_dist_from_border. False: do a center crop of size patch_size
+        independent_scale_for_each_axis: If True, a scale factor will be chosen independently for each axis.
+        """
         tr_transforms.append(SpatialTransform(
             patch_size, patch_center_dist_from_border=(patch_size//2), do_elastic_deform=params.get("do_elastic"),
             alpha=params.get("elastic_deform_alpha"), sigma=params.get("elastic_deform_sigma"),
@@ -523,15 +605,31 @@ def get_moreDA_augmentation(dataloader_train=None, dataloader_val=None, patch_si
             p_scale_per_sample=params.get("p_scale"), p_rot_per_sample=params.get("p_rot"),
             independent_scale_for_each_axis=params.get("independent_scale_factor_for_each_axis")
         ))
-
+        """ Randomly mirrors data along specified axes. Mirroring is evenly distributed. Probability of mirroring along
+        each axis is 0.5
+        Args:
+        axes (tuple of int): axes along which to mirror
+        """
         if params.get("do_mirror"):
             tr_transforms.append(MirrorTransform(params.get("mirror_axes")))
-
+        """
+        Augments by changing 'gamma' of the image (same as gamma correction in photos or computer monitors)
+        :param gamma_range: range to sample gamma from. If one value is smaller than 1 and the other one is
+        larger then half the samples will have gamma <1 and the other >1 (in the inverval that was specified).
+        Tuple of float. If one value is < 1 and the other > 1 then half the images will be augmented with gamma values
+        smaller than 1 and the other half with > 1
+        :param invert_image: whether to invert the image before applying gamma augmentation
+        :param per_channel:
+        :param data_key:
+        :param retain_stats: Gamma transformation will alter the mean and std of the data in the patch. If retain_stats=True,
+        the data will be transformed to match the mean and standard deviation before gamma augmentation
+        :param p_per_sample:
+        """
         if params.get("do_gamma"):
             tr_transforms.append(
                 GammaTransform(params.get("gamma_range"), False, True, retain_stats=params.get("gamma_retain_stats"),
                                p_per_sample=params["p_gamma"]))
-
+        # Unrelated to our dataset
         if params.get("mask_was_used_for_normalization") is not None and params.get("mask_was_used_for_normalization"):
             mask_was_used_for_normalization = params.get("mask_was_used_for_normalization")
             tr_transforms.append(MaskTransform(mask_was_used_for_normalization, mask_idx_in_seg=0, set_outside_to=0))
@@ -637,8 +735,19 @@ def get_moreDA_augmentation_gaussian(dataloader_train=None, dataloader_val=None,
             p_scale_per_sample=params.get("p_scale"), p_rot_per_sample=params.get("p_rot"),
             independent_scale_for_each_axis=params.get("independent_scale_factor_for_each_axis")
         ))
-
+        """GaussianNoiseTransform: Adds additive Gaussian Noise
+        Args:
+        noise_variance (tuple of float): samples variance of Gaussian distribution from this interval
+        """
         tr_transforms.append(GaussianNoiseTransform(p_per_sample=0.15))
+        """GaussianBlurTransform:
+        :param blur_sigma:
+        :param data_key:
+        :param label_key:
+        :param different_sigma_per_channel: whether to sample a sigma for each channel or all channels at once
+        :param p_per_channel: probability of applying gaussian blur for each channel. Default = 1 (all channels are
+        blurred with prob 1)
+        """
         tr_transforms.append(GaussianBlurTransform((0.5, 1.5), different_sigma_per_channel=True, p_per_sample=0.2,
                                                p_per_channel=0.5))
 
@@ -718,6 +827,6 @@ def get_moreDA_augmentation_gaussian(dataloader_train=None, dataloader_val=None,
 
 
 t = "Task003_Liver"
-p = os.path.join(preprocessing_output_dir, t)
+p = os.path.join("/net/pasnas01/pool1/ramanha/corpus/nnUNet/nnUNet_preprocessed", t)
 with open(os.path.join(p, "nnUNetPlansv2.1_plans_3D.pkl"), 'rb') as f:
         plans = pickle.load(f)

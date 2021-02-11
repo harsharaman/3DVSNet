@@ -8,19 +8,20 @@ sys.path.append(os.path.join(os.getcwd(), 'models'))
 from vsnet_parts import conv3DInstanceNorm, conv3DInstanceNormPRelu, bottleNeckIdentity, residualBlock, cascadeFeatureFusion
 from SEblocks import ChannelSELayer3D, SpatialSELayer3D, ChannelSpatialSELayer3D
 
-class vsnet(nn.Module):
+class vsnet_64ch(nn.Module):
     def __init__(
         self,
         n_classes=3,
         block_config=[1, 1, 2, 1],
-        is_instancenorm=False,
+        is_InstanceNorm=True,
     ):
 
-        super(vsnet, self).__init__()
+        super(vsnet_64ch, self).__init__()
 
         bias = True 
         self.block_config = block_config
         self.n_classes =  n_classes
+        self.is_InstanceNorm=is_InstanceNorm
 
         # Encoder
         self.convbnrelu1_1 = conv3DInstanceNormPRelu(
@@ -30,7 +31,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=(1,2,2),
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
         
         self.scse26 = ChannelSpatialSELayer3D(64)
@@ -42,7 +43,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
         
         self.convbnrelu1_3 = conv3DInstanceNormPRelu(
@@ -52,7 +53,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
 
         self.res_block3_identity = residualBlock(
@@ -62,7 +63,7 @@ class vsnet(nn.Module):
             2,
             1,
             include_range="identity",
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
 
         # Final conv layer in LR branch
@@ -73,7 +74,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
 
         # High-resolution (sub1) branch
@@ -84,7 +85,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=(1,2,2),
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
         self.scse13 = ChannelSpatialSELayer3D(32)
                                              
@@ -95,7 +96,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=(1,2,2),
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
 
         self.convbnrelu1_3 = conv3DInstanceNormPRelu(
@@ -105,7 +106,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
 
         self.convbnrelu4_sub1 = conv3DInstanceNormPRelu(
@@ -115,7 +116,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
         self.convbnrelu3_sub1 = conv3DInstanceNormPRelu(
             in_channels=64,
@@ -124,7 +125,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
        
         self.convbnrelu5_sub1 = conv3DInstanceNormPRelu(
@@ -134,7 +135,7 @@ class vsnet(nn.Module):
             padding=(1,2,2),
             stride=1,
             bias=bias,
-            is_instancenorm=is_instancenorm,
+            is_InstanceNorm=is_InstanceNorm,
         )
         
         self.classification = nn.Conv3d(32, self.n_classes, 1)
@@ -142,7 +143,7 @@ class vsnet(nn.Module):
         # Cascade Feature Fusion Units
 
         self.cff_sub12 = cascadeFeatureFusion(
-            self.n_classes, 64, 64, 64, is_instancenorm=is_instancenorm
+            self.n_classes, 64, 64, 64, is_InstanceNorm=is_InstanceNorm
         )
 
     def forward(self, x):

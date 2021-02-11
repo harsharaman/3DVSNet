@@ -187,7 +187,7 @@ class vsnet_depthwise(nn.Module):
             )
             return sub124_cls
 
-
+'''
 #test model
 input = torch.randn(2,1,32,32,32).cuda()
 net = vsnet_depthwise().float().cuda()
@@ -195,5 +195,5 @@ net = vsnet_depthwise().float().cuda()
 print(net)
 output=net(input)
 print(output[0].shape)
-
+'''
 

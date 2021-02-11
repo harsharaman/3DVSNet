@@ -155,7 +155,7 @@ default_3D_augmentation_params = {
     "additive_brightness_mu": 0.0,
     "additive_brightness_sigma": 0.1,
 
-    "num_threads": 4, #if 'nnUNet_n_proc_DA' not in os.environ else int(os.environ['nnUNet_n_proc_DA']),
+    "num_threads": 10, #if 'nnUNet_n_proc_DA' not in os.environ else int(os.environ['nnUNet_n_proc_DA']),
     "num_cached_per_thread": 1,
 }
 
@@ -374,7 +374,7 @@ class DataLoader3D(SlimDataLoaderBase):
         if not self.was_initialized:
             self.reset()
         idx = self.current_position
-        if idx < 126:#Number of threads * idx = required number of patches in one batch
+        if idx < 51:#Number of threads * idx = required number of patches in one batch
             self.current_position = idx + 1
             if not self.test:
                 selected_keys = np.random.choice(self.list_of_keys, self.batch_size, False, None)

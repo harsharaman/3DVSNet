@@ -39,6 +39,10 @@ class ChannelPool(nn.Module):
     def forward(self, x):
         if not 'std' in self.pool_types:
             return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1 )
+        elif not 'avg' in self.pool_types:
+            return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.std(x,1).unsqueeze(1)), dim=1 )
+        elif not 'max' in self.pool_types:
+            return torch.cat( (torch.mean(x,1).unsqueeze(1), torch.std(x,1).unsqueeze(1)), dim=1 )
         else:
             return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1), torch.std(x,1).unsqueeze(1)), dim=1 )
 
